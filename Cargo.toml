@@ -1,0 +1,12 @@
+[package]
+name = "openclaw-progress-notifier"
+version = "0.2.0"
+edition = "2021"
+description = "Process wrapper that monitors subprocesses and sends smart progress summaries via OpenClaw"
+
+[[bin]]
+name = "ocnotify"
+path = "src/main.rs"
+
+[dependencies]
+regex-lite = "0.1"
