@@ -1,175 +1,94 @@
 ---
-name: openclaw-progress-notifier
-description: "Time-based progress updates for long-running scripts. Use when you need periodic progress notifications to any OpenClaw channel (Discord/Telegram/Slack/Signal/etc.) from Python or shell workflows."
+name: task-monitor
+description: "Monitor, report on, and make decisions about long-running tasks. Use when launching training runs, builds, data processing, or any job that takes more than a few minutes."
 ---
 
-# OpenClaw Progress Notifier
+# Task Monitor
 
-Use this skill to add **time-based progress updates** to long-running jobs and send them via `openclaw message send` to any channel.
+You are the monitoring system. No libraries or wrappers needed — use your existing tools (exec, SSH, image analysis, messaging) to watch jobs, report progress, and decide when to intervene.
 
-## Quick usage (Python)
+## Launching a task
 
-Import the helper and call `maybe_send()` each epoch/step (optionally attach a plot). Use `send_now()` for start/end summaries (bypasses interval):
-
-```python
-from progress_notifier import ProgressNotifier
-
-notifier = ProgressNotifier(interval_sec=300)  # 5 min
-
-notifier.send_now("starting run…")
-
-# inside loop
-notifier.maybe_send(f"epoch {epoch} | loss {loss:.6f}", plot_path="plots/loss.png")
-
-notifier.send_now("run complete")
-```
-
-Configure delivery via env vars (channel-agnostic):
-
-- `OPENCLAW_PROGRESS_CHANNEL` (e.g., `discord`, `telegram`, `slack`)
-- `OPENCLAW_PROGRESS_TARGET` (e.g., `channel:123`, `user:123`, `+15551234567`)
-
-If either is missing, the notifier is a no-op.
-
-Optional defaults for "DM me" setups:
-
-- `OPENCLAW_DEFAULT_DM_CHANNEL` (used if `OPENCLAW_PROGRESS_CHANNEL` is unset)
-- `OPENCLAW_DEFAULT_DM_TARGET` (used if `OPENCLAW_PROGRESS_TARGET` is unset)
-
-## Setup on remote machines / nodes
-
-The notifier uses `openclaw message send` under the hood. On the **gateway** machine this works out of the box. On **nodes or remote machines**, you need one of:
-
-### Option 1: Install and configure openclaw CLI (recommended)
+Always log output to a file so you can check it later:
 
 ```bash
-npm install -g openclaw
-openclaw doctor --fix --non-interactive
+# Local
+nohup python train.py > run.log 2>&1 &
+echo $!  # save the PID
+
+# Remote node
+ssh grunt@<node> 'cd ~/project && nohup python train.py > run.log 2>&1 & echo $!'
 ```
 
-This creates a minimal `~/.openclaw/openclaw.json` with your channel config. If you only need one channel (e.g., Discord), you can create a minimal config:
+Use `PYTHONUNBUFFERED=1` for Python scripts so output appears in real time.
 
-```json
-{
-  "channels": {
-    "discord": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "actions": { "messages": true }
-    }
-  }
-}
-```
+After launch, send a summary to the user: what's running, where, what PID, what to expect.
 
-Then run `openclaw doctor --fix` to finalize.
+## Checking progress
 
-### Option 2: HTTP fallback via gateway API
-
-If you don't want to install openclaw on every machine, set these env vars to route notifications through your gateway:
+Periodically tail the log and grab any plots:
 
 ```bash
-export OPENCLAW_GATEWAY_URL=http://192.168.1.94:18789
-export OPENCLAW_GATEWAY_TOKEN=your-gateway-token
+# Check log
+ssh grunt@<node> 'tail -20 ~/project/run.log'
+
+# Grab plot for visual analysis
+scp grunt@<node>:~/project/plots/loss.png /tmp/check.png
 ```
 
-The notifier will POST to `$OPENCLAW_GATEWAY_URL/api/v1/message/send` when the CLI is unavailable or misconfigured.
+Then use the `image` tool to analyze the plot.
 
-### Self-test
+## Making decisions
 
-On first send, the notifier runs a self-test and prints warnings to stderr if delivery will fail:
-
-- `WARNING: No channel/target configured` → set the env vars
-- `WARNING: channel 'X' not configured on this machine` → run `openclaw doctor --fix` or use HTTP fallback
-- `WARNING: openclaw CLI not available` → install openclaw or set gateway URL
-
-## CLI usage
-
-Send a one-off update:
-
-```bash
-OPENCLAW_PROGRESS_CHANNEL=discord \
-OPENCLAW_PROGRESS_TARGET=channel:123456789 \
-python -m progress_notifier "epoch 5 | loss 0.1234"
-```
-
-With a plot:
-
-```bash
-python -m progress_notifier "epoch 5 | loss 0.1234" --plot plots/loss.png
-```
-
-## Delivery behavior
-
-- **`send_now()`** — sends immediately (bypasses interval). Use for start/end messages.
-- **`maybe_send()`** — sends only if `interval_sec` has elapsed since last send. Use in loops.
-- **Plot attachments** — sent alongside messages when `plot_path` is provided. Plot frequency can differ from text frequency via `OPENCLAW_PROGRESS_PLOT_INTERVAL_SEC`.
-- **Deduplication** — text and plot have independent timers; a single call can send both when both intervals have elapsed.
-
-## Environment variables
-
-| Variable | Required | Description |
-|---|---|---|
-| `OPENCLAW_PROGRESS_CHANNEL` | Yes | Channel name (discord, telegram, etc.) |
-| `OPENCLAW_PROGRESS_TARGET` | Yes | Target (channel:ID, user:ID, phone, etc.) |
-| `OPENCLAW_PROGRESS_INTERVAL_SEC` | No | Text send interval (default: 300) |
-| `OPENCLAW_PROGRESS_PLOT_INTERVAL_SEC` | No | Plot send interval (default: same as text) |
-| `OPENCLAW_GATEWAY_URL` | No | HTTP fallback gateway URL |
-| `OPENCLAW_GATEWAY_TOKEN` | No | HTTP fallback auth token |
-| `OPENCLAW_DEFAULT_DM_CHANNEL` | No | Fallback channel if PROGRESS_CHANNEL unset |
-| `OPENCLAW_DEFAULT_DM_TARGET` | No | Fallback target if PROGRESS_TARGET unset |
-
-## Active Monitoring & Early Stopping
-
-When long-running jobs send progress notifications with plot attachments, **you are the early-stop mechanism**. Don't just forward notifications — actively analyze them.
-
-### What to do when a plot arrives
-
-1. **Look at the plot** using vision — don't just read the numeric summary
-2. **Assess the training dynamics:**
-   - Is the loss still decreasing meaningfully, or has it plateaued?
-   - Is there divergence or oscillation that suggests instability?
-   - Has the metric hit a reasonable target already?
-   - Is the accept rate (for hillclimb/search) too low to make further progress?
-3. **Decide whether to intervene:**
-   - **Let it run** — curve is still improving at a meaningful rate
-   - **Kill it** — clearly plateaued, diverging, or target reached
-   - **Alert the user** — ambiguous case, unusual behavior worth flagging
-
-### How to stop a remote run
-
-```bash
-# Find and kill the process
-ssh grunt@<node-ip> 'kill <PID>'
-```
-
-Then send a notification explaining the decision:
-- What the plot showed (e.g., "LSR sum plateaued at 115 for last 500 steps")
-- Why you stopped it (e.g., "No improvement in 10 updates, convergence reached")
-- Final metrics and where the model/plots are saved
-
-### Judgment guidelines
+When you look at a plot or read metrics, decide:
 
 | Signal | Action |
 |---|---|
 | Loss dropping steadily | Let it run |
-| Loss flat for >3 consecutive updates | Likely converged — consider stopping |
-| Loss increasing from best | Diverging — stop unless it's early noise |
-| Accuracy plateaued near known ceiling | Stop, target reached |
-| Accept rate <1% (search/hillclimb) | Diminishing returns — stop |
-| Unusual spikes or oscillation | Alert user, don't auto-kill |
+| Loss flat for 3+ check-ins | Likely converged — stop it |
+| Loss increasing from best | Diverging — stop it |
+| Accuracy at known ceiling | Target reached — stop it |
+| Accept rate <1% (search methods) | Diminishing returns — stop it |
+| Unusual spikes or oscillation | Alert the user, don't auto-kill |
 
-### Key principle
+**Use judgment, not thresholds.** You can see the curve shape, compare to baselines, and factor in how long it's been running.
 
-You have context that coded heuristics don't — you can see the shape of the curve, compare it to paper baselines, and factor in how long the run has been going. **Use judgment, not thresholds.**
+## Stopping a task
 
-## Notes
+```bash
+ssh grunt@<node> 'kill <PID>'
+```
 
-- Keep messages short and consistent for clean notification feeds.
-- For multi-run batch launches, prefix messages with a run label.
-- The notifier is a no-op when channel/target aren't configured — safe to leave in code.
-- When monitoring multiple runs, prioritize checking the ones closest to completion or showing concerning trends.
+Then report:
+- What the plot/metrics showed
+- Why you stopped it
+- Final numbers and where results are saved
 
-## Resources
+## Reporting
 
-- `progress_notifier/__init__.py` — library source
-- `scripts/progress_notifier.py` — standalone CLI wrapper (legacy)
+Keep updates concise. One message with the key metrics:
+
+```
+⚒️ Hillclimb Node 1 | Step 3000/5000
+LSR sum: 127.34 (plateau since step 500)
+Accept rate: 0.5%
+→ Killed — no improvement in 2500 steps
+```
+
+For batch launches across multiple nodes, send one grouped summary instead of N individual messages.
+
+## When to check
+
+- After launch: verify the process started and first output appeared
+- Periodically: every 5-15 min for fast jobs, every 30-60 min for slow ones
+- Use heartbeats or cron jobs to remind yourself to check
+- When a notification arrives with a plot attachment — always look at it
+
+## Multi-node runs
+
+When distributing work across the fleet:
+
+1. Track what's running where (node, PID, task, start time)
+2. Check all nodes in one pass
+3. Collect results via SCP when done
+4. Report a single consolidated summary
