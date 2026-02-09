@@ -1,8 +1,8 @@
 [package]
-name = "openclaw-progress-notifier"
-version = "0.2.0"
+name = "ocnotify"
+version = "0.3.0"
 edition = "2021"
-description = "Process wrapper that monitors subprocesses and sends smart progress summaries via OpenClaw"
+description = "CLI wrapper that monitors subprocesses and sends smart progress notifications via OpenClaw"
 
 [[bin]]
 name = "ocnotify"
