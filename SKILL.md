@@ -94,6 +94,41 @@ For batch launches across multiple nodes, send one grouped summary instead of N 
 
 If the user asks for “monitor this every X minutes” or “monitor whatever is running”, prefer **one generic monitor loop** rather than bespoke one-off scripts.
 
+### Event-driven completion notifications (preferred when user wants low-noise)
+
+For long jobs where the user says “notify me when done”, prefer an **event-driven completion callback** over periodic status spam.
+
+Use the local wrappers in this workspace:
+
+- `/home/grunt/.openclaw/workspace/scripts/oc-run-notify.sh` (local command)
+- `/home/grunt/.openclaw/workspace/scripts/oc-run-notify-ssh.sh` (remote SSH command)
+
+These run the command and send a single OpenClaw message on exit (success/failure), so no cron is required.
+
+Example (local):
+
+```bash
+nohup /home/grunt/.openclaw/workspace/scripts/oc-run-notify.sh \
+  --label "snake 2000g" \
+  --channel discord \
+  --target 366115325797990400 \
+  --log /home/grunt/neural-mutator/results/snake.log \
+  -- bash -lc 'cd /home/grunt/neural-mutator && source .venv/bin/activate && python -m src.train ...' \
+  >/tmp/notify-wrapper.log 2>&1 &
+```
+
+Example (remote over SSH):
+
+```bash
+nohup /home/grunt/.openclaw/workspace/scripts/oc-run-notify-ssh.sh \
+  --host grunt@192.168.1.95 \
+  --label "snake 2000g" \
+  --channel discord \
+  --target 366115325797990400 \
+  -- 'cd /home/grunt/neural-mutator && source .venv/bin/activate && python -m src.train ...' \
+  >/tmp/notify-wrapper.log 2>&1 &
+```
+
 Two reliable patterns:
 
 ### Pattern A — registry-based (works for *any* program)
