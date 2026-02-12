@@ -84,6 +84,42 @@ For batch launches across multiple nodes, send one grouped summary instead of N 
 - Use heartbeats or cron jobs to remind yourself to check
 - When a notification arrives with a plot attachment — always look at it
 
+## Automating monitoring (generic)
+
+If the user asks for “monitor this every X minutes” or “monitor whatever is running”, prefer **one generic monitor loop** rather than bespoke one-off scripts.
+
+Two reliable patterns:
+
+### Pattern A — registry-based (works for *any* program)
+
+When you launch a long-running task, record a job entry (host, PID, cwd, log path, label, optional artifact paths) in a small JSON file on the gateway (example path):
+
+- `/home/grunt/.openclaw/workspace/memory/monitor-registry.json`
+
+Then a cron/heartbeat tick can:
+
+1) Check if each PID is alive (remote `ps -p <pid>`)
+2) Tail the log
+3) Pull/generate any plots
+4) Message the user **only if something is running**
+5) When finished, mark the entry complete
+
+This avoids noisy “scan the whole machine” behavior and works for non-Python jobs too.
+
+### Pattern B — heuristic fallback (useful for legacy jobs)
+
+If there’s no registry, you can scan for known signatures (e.g. `pgrep -af "python.*-m src.train"`) and infer log paths from argv.
+
+Use this only as a fallback—registry is the stable approach.
+
+### Intervention policy
+
+Unless the user explicitly authorizes it, **ask before killing** a run. If you recommend stopping, include:
+
+- what plateau/divergence signal you observed
+- how long it has persisted (time window / gens)
+- what you recommend (stop / keep going / change params)
+
 ## Multi-node runs
 
 When distributing work across the fleet:
