@@ -16,7 +16,11 @@ Always log output to a file so you can check it later:
 nohup python train.py > run.log 2>&1 &
 echo $!  # save the PID
 
-# Remote node
+# Remote node (preferred: OpenClaw node RPC)
+# Use OpenClaw node RPC for quick launches when possible (better observability).
+# (Exact command will vary; use the `nodes` tool in-chat.)
+
+# SSH fallback (when RPC timeout is too short or you need a full shell)
 ssh grunt@<node> 'cd ~/project && nohup python train.py > run.log 2>&1 & echo $!'
 ```
 
@@ -26,13 +30,15 @@ After launch, send a summary to the user: what's running, where, what PID, what 
 
 ## Checking progress
 
-Periodically tail the log and grab any plots:
+Periodically tail the log and grab any plots.
+
+Prefer OpenClaw’s built-in node RPC (`nodes` tool) for quick status/log reads; fall back to SSH/SCP when you need longer operations or file transfer.
 
 ```bash
-# Check log
+# Check log (SSH fallback)
 ssh grunt@<node> 'tail -20 ~/project/run.log'
 
-# Grab plot for visual analysis
+# Grab plot for visual analysis (SCP fallback)
 scp grunt@<node>:~/project/plots/loss.png /tmp/check.png
 ```
 
